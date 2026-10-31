@@ -30,7 +30,7 @@
 
 ---
 
-### タスク 1: 境界化された読み取り専用プロトコル
+### タスク 1: 制限付き読み取り専用コマンドプロトコル
 
 **対象ファイル:** `source/protocol.c`, `source/protocol.h`, `tests/test_protocol.c`, `source/server.c`, `source/server.h`, `tests/test_server.py`, `Makefile` ホストテストターゲットの作成。
 

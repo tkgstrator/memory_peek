@@ -16,7 +16,7 @@ This is a development artifact built from the current local tree. If committed, 
 | NPDM SHA-256 | `b5894994a68c2544265b994f507b00455d3e7989f965586ba8acefb57f9ea245` |
 | NSO SHA-256 | `05caefd612357906615a17d567c7bab15a93e60e65a544befed4c45c5e0083c0` |
 
-`make test` successfully passed the C wire protocol parser test suite and 13 Python audit/socket tests.
+`make test` successfully passed the C command protocol parser test suite and 13 Python audit/socket tests.
 `make switch` cross-compiled the package and passed `tools/audit.py`:
 - The NSP contains exactly the audited NSO and NPDM members.
 - The NPDM contains no filesystem permissions or wildcard service access grants.
