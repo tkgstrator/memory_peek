@@ -5,50 +5,54 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
-  workflow_call:
 
 permissions:
   contents: read
 
 jobs:
-  verify:
+  format:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Test host protocol and audit logic
-        run: make test
-
-      - name: Build and audit Switch package
-        shell: bash
+      - name: Install pinned formatters
         run: |
-          set -euo pipefail
-          docker run --rm --network none \
-            --user "$(id -u):$(id -g)" \
-            --volume "$GITHUB_WORKSPACE:/work" --workdir /work \
-            devkitpro/devkita64@sha256:1fc388c3a0d34bd2045a6dadcb1020e069d5f876a187fd705de14b4440c00282 \
-            make -B switch
+          python3 -m venv .venv
+          .venv/bin/pip install clang-format==18.1.8 ruff==0.17.3
 
-      - name: Prepare checked release files
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          cp build/switch/memory_peek.nsp dist/memory_peek.nsp
-          cd dist
-          sha256sum memory_peek.nsp > SHA256SUMS
-          sha256sum --check --strict SHA256SUMS
+      - name: Check C formatting
+        run: .venv/bin/clang-format --dry-run --Werror source/*.c source/*.h tests/*.c
 
-      - name: Upload checked package
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - name: Check Python formatting
+        run: .venv/bin/ruff format --check tools tests
+
+  commitlint:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out PR head and history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          name: memory-peek-package
-          path: |
-            dist/memory_peek.nsp
-            dist/SHA256SUMS
-          if-no-files-found: error
-          retention-days: 7
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install commitlint
+        run: npm ci --ignore-scripts
+
+      - name: Lint PR commits
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: npx commitlint --from "$BASE_SHA" --to "$HEAD_SHA" --verbose

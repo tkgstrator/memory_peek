@@ -55,9 +55,9 @@ docker run --rm --user "$(id -u):$(id -g)" -v "$PWD":/work -w /work \
 
 ## CIとリリース
 
-[`integration.yaml`](.github/workflows/integration.yaml) は、`master` ブランチへのプッシュおよびプルリクエスト時に、ホストテストの実行、Switch 向けの新規クロスコンパイル、および成果物の権限監査を実行します。また、監査済みの NSP と生成された `SHA256SUMS` をワークフロー成果物としてアップロードします。
+[`integration.yaml`](.github/workflows/integration.yaml) は、`master` ブランチへのプッシュとプルリクエストで C・Python のフォーマットを検査します。プルリクエストでは commitlint でコミットメッセージも検査します。Switch 向けパッケージのビルドや公開は行いません。
 
-[`deployment.yaml`](.github/workflows/deployment.yaml) は、`master` ブランチ上のコミットに対する `vX.Y.Z` タグのプッシュによってトリガーされます。同一の統合チェックを実行し、転送された NSP のチェックサムを検証したうえで、NSP と `SHA256SUMS` を GitHub Releases に公開します。既存のリリースに対して同じタグを再実行した場合は、アセットを上書きせずにエラー終了します。リリースのバージョン番号は、通信プロトコルのバージョンを示す `getVersion` とは独立しています。このワークフローは GitHub へのビルド成果物の公開のみを行い、Switch へのインストールや上記の実機検証を代替するものではありません。
+[`deployment.yaml`](.github/workflows/deployment.yaml) は、`master` ブランチ上のコミットに対する `vX.Y.Z` タグのプッシュによってトリガーされます。ホストテスト、Switch 向けの新規クロスコンパイル、成果物の権限監査を実行し、転送された NSP のチェックサムを検証したうえで、NSP と `SHA256SUMS` を GitHub Releases に公開します。既存のリリースに対して同じタグを再実行した場合は、アセットを上書きせずにエラー終了します。リリースのバージョン番号は、通信プロトコルのバージョンを示す `getVersion` とは独立しています。このワークフローは GitHub へのビルド成果物の公開のみを行い、Switch へのインストールや上記の実機検証を代替するものではありません。
 
 ## 出典とライセンス
 

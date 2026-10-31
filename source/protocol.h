@@ -9,12 +9,22 @@
 #define MP_MAX_READ 1048576
 
 enum mp_operation {
-    MP_VERSION, MP_IDENTITY, MP_TITLE_ID, MP_MAIN_BASE, MP_BUILD_ID,
-    MP_HEAP_BASE, MP_IS_RUNNING, MP_PEEK_MAIN, MP_PEEK_ABSOLUTE,
+    MP_VERSION,
+    MP_IDENTITY,
+    MP_TITLE_ID,
+    MP_MAIN_BASE,
+    MP_BUILD_ID,
+    MP_HEAP_BASE,
+    MP_IS_RUNNING,
+    MP_PEEK_MAIN,
+    MP_PEEK_ABSOLUTE,
     MP_PEEK_ABSOLUTE_MULTI
 };
 
-struct mp_range { uint64_t address; uint32_t length; };
+struct mp_range {
+    uint64_t address;
+    uint32_t length;
+};
 struct mp_request {
     enum mp_operation operation;
     uint64_t program_id;

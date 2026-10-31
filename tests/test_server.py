@@ -7,7 +7,9 @@ import unittest
 
 @contextlib.contextmanager
 def connection(scenario="normal"):
-    process = subprocess.Popen(["build/fake_server", scenario], stdout=subprocess.PIPE, text=True)
+    process = subprocess.Popen(
+        ["build/fake_server", scenario], stdout=subprocess.PIPE, text=True
+    )
     try:
         port = int(process.stdout.readline())
         with socket.create_connection(("127.0.0.1", port), timeout=3) as sock:
@@ -42,10 +44,14 @@ class ServerTests(unittest.TestCase):
             self.assertEqual(line(sock, "getMainNsoBase"), b"0000000000001000\r\n")
             self.assertEqual(line(sock, "getHeapBase"), b"0000000000008000\r\n")
             self.assertEqual(line(sock, "getBuildID"), b"A0A1A2A3A4A5A6A7\r\n")
-            self.assertEqual(line(sock, "isProgramRunning 0x0100C2500FC20000"), b"1\r\n")
+            self.assertEqual(
+                line(sock, "isProgramRunning 0x0100C2500FC20000"), b"1\r\n"
+            )
             self.assertEqual(line(sock, "isProgramRunning 0x1"), b"0\r\n")
             self.assertEqual(line(sock, "peekMain 0x20 0x4"), b"20212223\r\n")
-            self.assertEqual(line(sock, "peekAbsoluteMulti 0x10 0x2 0x20 0x2"), b"10112021\r\n")
+            self.assertEqual(
+                line(sock, "peekAbsoluteMulti 0x10 0x2 0x20 0x2"), b"10112021\r\n"
+            )
 
     def test_fragmented_request_and_unknown_command(self):
         with connection() as sock:
@@ -78,7 +84,9 @@ class ServerTests(unittest.TestCase):
             self.assertEqual(result[-18:], b"F8F9FAFBFCFDFEFF\r\n")
 
     def test_stalled_reader_does_not_hold_client_forever(self):
-        process = subprocess.Popen(["build/fake_server", "normal"], stdout=subprocess.PIPE, text=True)
+        process = subprocess.Popen(
+            ["build/fake_server", "normal"], stdout=subprocess.PIPE, text=True
+        )
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
         try:
@@ -98,15 +106,25 @@ class ServerTests(unittest.TestCase):
             self.assertEqual(line(sock, "getTitleID"), b"ERR NO_GAME\r\n")
             self.assertEqual(line(sock, "isProgramRunning 0x1"), b"0\r\n")
         with connection("read_fail") as sock:
-            self.assertEqual(line(sock, "peekAbsoluteMulti 0x1000 0x2 0x2000 0x2"), b"ERR READ_FAILED\r\n")
+            self.assertEqual(
+                line(sock, "peekAbsoluteMulti 0x1000 0x2 0x2000 0x2"),
+                b"ERR READ_FAILED\r\n",
+            )
         with connection("switch") as sock:
-            self.assertEqual(line(sock, "peekAbsolute 0x1000 0x2"), b"ERR GAME_CHANGED\r\n")
+            self.assertEqual(
+                line(sock, "peekAbsolute 0x1000 0x2"), b"ERR GAME_CHANGED\r\n"
+            )
 
     def test_running_game_without_reader_reports_unavailable(self):
         with connection("unavailable") as sock:
             self.assertEqual(line(sock, "getTitleID"), b"ERR READER_UNAVAILABLE\r\n")
-            self.assertEqual(line(sock, "peekAbsolute 0x1000 0x2"), b"ERR READER_UNAVAILABLE\r\n")
-            self.assertEqual(line(sock, "isProgramRunning 0x0100C2500FC20000"), b"ERR READER_UNAVAILABLE\r\n")
+            self.assertEqual(
+                line(sock, "peekAbsolute 0x1000 0x2"), b"ERR READER_UNAVAILABLE\r\n"
+            )
+            self.assertEqual(
+                line(sock, "isProgramRunning 0x0100C2500FC20000"),
+                b"ERR READER_UNAVAILABLE\r\n",
+            )
 
 
 if __name__ == "__main__":

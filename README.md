@@ -55,9 +55,9 @@ The provisional Program ID is `0x43004D5045454B01`. Confirm it is unused on the 
 
 ## CI and releases
 
-[`integration.yaml`](.github/workflows/integration.yaml) executes host tests, performs a fresh Switch cross-compilation, and runs the artifact permission audit on pushes to `master` and pull requests. It also uploads the audited NSP and a generated `SHA256SUMS` as a short-lived workflow artifact.
+[`integration.yaml`](.github/workflows/integration.yaml) checks C and Python formatting on pushes to `master` and pull requests. It also checks the commit messages in each pull request with commitlint. It does not build or publish the Switch package.
 
-[`deployment.yaml`](.github/workflows/deployment.yaml) triggers on pushed `vX.Y.Z` tags whose commits belong to `master`. It runs the same integration checks, validates the transferred NSP checksum, and publishes the NSP and `SHA256SUMS` to a GitHub Release. Re-running a tag on an existing release intentionally fails rather than overwriting release assets. The GitHub release version is independent of `getVersion`, which identifies the wire protocol version. This workflow publishes build assets to GitHub; it does not deploy files to a Switch or bypass the device verification steps described above.
+[`deployment.yaml`](.github/workflows/deployment.yaml) triggers on pushed `vX.Y.Z` tags whose commits belong to `master`. It runs host tests, performs a fresh Switch cross-compilation and artifact permission audit, validates the transferred NSP checksum, and publishes the NSP and `SHA256SUMS` to a GitHub Release. Re-running a tag on an existing release intentionally fails rather than overwriting release assets. The GitHub release version is independent of `getVersion`, which identifies the wire protocol version. This workflow publishes build assets to GitHub; it does not deploy files to a Switch or bypass the device verification steps described above.
 
 ## Provenance and license
 

@@ -32,22 +32,36 @@ int main(void) {
     assert(mp_parse_request(multi_request, strlen(multi_request), &request) == 0);
     assert(request.ranges[0].address == 0x1000 && request.ranges[1].address == 0x2000);
     assert(request.ranges[0].length == 16 && request.ranges[1].length == 32);
-    const char *invalid[] = {
-        "poke 0x1000 0xAB", "freeze 0x1000", "click A", "peekMainMulti 0x0 0x1",
-        "getVersion extra", "peekAbsolute", "peekAbsolute 0x1", "peekAbsolute 0x1 0x0",
-        "peekAbsolute 0x1 0x100001", "peekAbsolute 0xFFFFFFFFFFFFFFFF 0x2",
-        "peekAbsolute 0xGG 0x1", "peekAbsolute 0x1 -1", "peekAbsolute 1.5 2",
-        "peekAbsoluteMulti 0x1 0x80000 0x2 0x80001",
-        "peekAbsoluteMulti 0x1 0x1 0x2", "isProgramRunning 0100C2500FC20000",
-        "", "getVersion\ngetIdentity", "getVersion\0junk"
-    };
-    for (size_t i = 0; i < sizeof(invalid)/sizeof(invalid[0]) - 1; ++i) bad(invalid[i]);
-    assert(mp_parse_request(invalid[sizeof(invalid)/sizeof(invalid[0])-1], 15, &request) == -1);
-    char many[2049]; memset(many, 'A', 2048); many[2048] = 0;
+    const char *invalid[] = {"poke 0x1000 0xAB",
+                             "freeze 0x1000",
+                             "click A",
+                             "peekMainMulti 0x0 0x1",
+                             "getVersion extra",
+                             "peekAbsolute",
+                             "peekAbsolute 0x1",
+                             "peekAbsolute 0x1 0x0",
+                             "peekAbsolute 0x1 0x100001",
+                             "peekAbsolute 0xFFFFFFFFFFFFFFFF 0x2",
+                             "peekAbsolute 0xGG 0x1",
+                             "peekAbsolute 0x1 -1",
+                             "peekAbsolute 1.5 2",
+                             "peekAbsoluteMulti 0x1 0x80000 0x2 0x80001",
+                             "peekAbsoluteMulti 0x1 0x1 0x2",
+                             "isProgramRunning 0100C2500FC20000",
+                             "",
+                             "getVersion\ngetIdentity",
+                             "getVersion\0junk"};
+    for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]) - 1; ++i)
+        bad(invalid[i]);
+    assert(mp_parse_request(invalid[sizeof(invalid) / sizeof(invalid[0]) - 1], 15, &request) == -1);
+    char many[2049];
+    memset(many, 'A', 2048);
+    many[2048] = 0;
     assert(mp_parse_request(many, 2048, &request) == -1);
     assert(mp_parse_request(many, 2049, &request) == -1);
     char multi[2048] = "peekAbsoluteMulti";
-    for (int i = 0; i < 33; ++i) strcat(multi, " 0x1 0x1");
+    for (int i = 0; i < 33; ++i)
+        strcat(multi, " 0x1 0x1");
     bad(multi);
     puts("protocol tests passed");
 }
