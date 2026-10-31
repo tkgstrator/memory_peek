@@ -25,6 +25,12 @@ or wildcard service grants. It excludes direct debug attach/read/write SVCs
 read-only `dmnt:cht` IPC commands and does not attach to a running game.
 A separately generated unsafe NPDM with 0x6b was rejected by the audit policy.
 
+The NSP SHA-256 above identifies this local build. The first GitHub Actions
+build from the same source packaged the identical NSO and NPDM in the opposite
+PFS0 entry order, so its NSP hash differs. Each release generates its own
+`SHA256SUMS` from the audited NSP it actually publishes; use that file to
+verify a downloaded release asset.
+
 Before a deployment, verify the live SD has no Program ID collision and
 complete the inventory, backup, recovery, boot, and real read gates in the
 design spec. Static build results do not establish compatibility with
