@@ -90,6 +90,22 @@ or modify an SD card. The device inventory, rollback, and actual boot/read
 validation are separate deployment gates documented in
 `docs/superpowers/specs/2026-10-31-memory-peek-design.md`.
 
+## CI and releases
+
+[`integration.yaml`](.github/workflows/integration.yaml) runs host tests and a
+fresh Switch build plus the artifact permission audit on pushes to `master`
+and pull requests. It also saves the audited NSP and a generated `SHA256SUMS`
+as a short-lived workflow artifact.
+
+[`deployment.yaml`](.github/workflows/deployment.yaml) accepts a pushed
+`vX.Y.Z` tag only when its commit is on `master`. It runs the same integration
+checks, verifies the transferred NSP checksum, and publishes the NSP and
+`SHA256SUMS` to a GitHub Release. Re-running a tag with an existing release
+fails instead of replacing release assets. The release version is independent
+of `getVersion`, which identifies the wire protocol version. This workflow
+publishes build files to GitHub; it does not install anything on a Switch or
+replace the device verification described above.
+
 ## Provenance and license
 
 This repository's implementation is written for this project and licensed
