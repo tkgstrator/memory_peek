@@ -2,15 +2,19 @@
 
 [日本語版はこちら](README.ja.md)
 
-`memory_peek` is an experimental, dedicated Atmosphère sysmodule for reading the memory of the currently running application process via an existing, pre-attached `dmnt:cht` session. It listens on TCP port 6000 and provides a minimal read-only subset of the sys-botbase line protocol. It exposes no endpoints for RAM writes, controller inputs, process freezing, filesystem access, or arbitrary command execution. Its only `dmnt:cht` IPC requests are `HasCheatProcess`, `GetCheatProcessMetadata`, and `ReadCheatProcessMemory`.
+`memory_peek` is an experimental, dedicated Atmosphère sysmodule for reading the memory of the currently running application process via an existing, pre-attached `dmnt:cht` session.
+
+It listens on TCP port 6000 and provides a lightweight, read-only subset of sys-botbase's text command interface (one command per line). Existing tools designed for sys-botbase (such as NXCTF clients) can connect and read memory out of the box. However, all memory-write operations, controller simulations, process freezing, filesystem access, and generic command endpoints are completely omitted. Its only `dmnt:cht` IPC requests are `HasCheatProcess`, `GetCheatProcessMetadata`, and `ReadCheatProcessMemory`.
 
 **Status:** Cross-compiled and statically audited only. Switch hardware boot, Atmosphère 1.12.1 runtime execution, LAN communication, and real in-game reads have not yet been tested on a physical device. Do not deploy until the target SD card is inventoried, the provisional Program ID is verified free of collisions, and a direct recovery path is prepared. The mere presence of an NSP file on the SD card does not verify that it booted or can successfully read game memory.
 
 The sysmodule does not attach to running games itself. It can read process memory only when Atmosphère's `dmnt` cheat manager already holds an active session for that game. Staging an empty cheat file at `atmosphere/contents/<16-hex-title-id>/cheats/<16-hex-build-id-prefix>.txt` establishes this session at game launch without executing any cheat opcodes. The filename uses the **first eight bytes** of the main NSO build ID (16 hexadecimal digits), as documented by [Atmosphère 1.12.1](https://github.com/Atmosphere-NX/Atmosphere/blob/1.12.1/docs/features/cheats.md). Always verify this prefix against the exact running title and build before staging the file; do not infer it from an unverified binary or a different game version. Atmosphère checks the cheat toggle key at launch (default: **cheats are enabled when L is not held**); holding L suppresses cheat loading, leaving the reader unavailable even if the empty cheat file is present. If no active session exists, the module returns `ERR READER_UNAVAILABLE` without attempting to attach or pausing/stopping the game. The launch-time behavior of this configuration remains unverified on hardware.
 
-## Wire protocol
+## Command interface and protocol
 
-Commands are sent as single ASCII lines terminated by LF or CRLF. Responses are returned as single CRLF-terminated lines. The server handles one client connection at a time and automatically disconnects an idle client after a five-second timeout. `getVersion` returns `1.0.0`; `getIdentity` returns `memory_peek/1`.
+Commands are sent as plain ASCII text lines terminated by LF or CRLF. Each response is a single line terminated by CRLF. You can interact with it programmatically or test it directly from a terminal using tools like `nc` (netcat).
+
+The server processes one client connection at a time and automatically disconnects an idle client after a five-second timeout. `getVersion` returns `1.0.0`; `getIdentity` returns `memory_peek/1`.
 
 | Command | Response |
 | --- | --- |

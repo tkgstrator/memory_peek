@@ -30,7 +30,7 @@
 
 ---
 
-### Task 1: Bounded read-only protocol
+### Task 1: Bounded read-only command protocol
 
 **Files:** Create `source/protocol.c`, `source/protocol.h`, `tests/test_protocol.c`, `source/server.c`, `source/server.h`, `tests/test_server.py`, and `Makefile` host test targets.
 
