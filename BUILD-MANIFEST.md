@@ -1,9 +1,8 @@
 # Local build manifest — 2026-10-31
 
-This is a development artifact built from the current local tree. If committed,
-its source revision is the commit containing this manifest. Regenerate the
-build and hashes after any source, configuration, or toolchain change. Nothing
-here records a Switch installation or a successful runtime read.
+[日本語版はこちら](BUILD-MANIFEST.ja.md)
+
+This is a development artifact built from the current local tree. If committed, its source revision corresponds to the commit containing this manifest. Regenerate the build and hashes after any change to source files, configuration, or toolchains. Nothing recorded here confirms a successful Switch installation or live runtime execution.
 
 | Item | Value |
 | --- | --- |
@@ -17,27 +16,16 @@ here records a Switch installation or a successful runtime read.
 | NPDM SHA-256 | `b5894994a68c2544265b994f507b00455d3e7989f965586ba8acefb57f9ea245` |
 | NSO SHA-256 | `05caefd612357906615a17d567c7bab15a93e60e65a544befed4c45c5e0083c0` |
 
-`make test` passed the C parser test and thirteen Python audit/socket tests.
-`make switch` cross-compiled the package and passed `tools/audit.py`: the NSP
-contains exactly the audited NSO and NPDM, the NPDM has no filesystem access
-or wildcard service grants. It excludes direct debug attach/read/write SVCs
-(0x60/0x6a/0x6b) and process mutation syscalls. The source uses only three
-read-only `dmnt:cht` IPC commands and does not attach to a running game.
-A separately generated unsafe NPDM with 0x6b was rejected by the audit policy.
+`make test` successfully passed the C wire protocol parser test suite and 13 Python audit/socket tests.
+`make switch` cross-compiled the package and passed `tools/audit.py`:
+- The NSP contains exactly the audited NSO and NPDM members.
+- The NPDM contains no filesystem permissions or wildcard service access grants.
+- Direct debug attach/read/write SVCs (`0x60`/`0x6A`/`0x6B`) and process mutation syscalls are excluded.
+- The source code invokes only three read-only `dmnt:cht` IPC commands and never attaches to a running process.
+- A separately generated unsafe NPDM containing SVC `0x6B` was explicitly rejected by the audit policy.
 
-The NSP SHA-256 above identifies this local build. The first GitHub Actions
-build from the same source packaged the identical NSO and NPDM in the opposite
-PFS0 entry order, so its NSP hash differs. Each release generates its own
-`SHA256SUMS` from the audited NSP it actually publishes; use that file to
-verify a downloaded release asset.
+The NSP SHA-256 hash above identifies this specific local build. The initial GitHub Actions build from the same source packaged the identical NSO and NPDM in the opposite PFS0 entry order, resulting in a distinct NSP archive hash. Each release generates its own `SHA256SUMS` from the actual audited NSP it publishes; verify downloaded release assets against that checksum file.
 
-Before a deployment, verify the live SD has no Program ID collision and
-complete the inventory, backup, recovery, boot, and real read gates in the
-design spec. Static build results do not establish compatibility with
-Atmosphère 1.12.1 or the target game.
-The empty cheat file at
-`atmosphere/contents/<title-id>/cheats/<first-eight-build-id-bytes>.txt`
-needed for a launch-time `dmnt` session has not been staged or tested. Its
-title ID and 16-digit build ID prefix require live confirmation.
-Atmosphère's launch-time cheat-enable key must also permit attachment; its
-default is L not held.
+Before deploying to hardware, verify that the live SD card has no Program ID collisions and satisfy the inventory, backup, recovery, boot, and live-read gates detailed in the design specification (`docs/superpowers/specs/2026-10-31-memory-peek-design.md`). Static build verification does not establish runtime compatibility with Atmosphère 1.12.1 or the target game.
+
+The empty cheat file at `atmosphere/contents/<title-id>/cheats/<first-eight-build-id-bytes>.txt` required for a launch-time `dmnt` session has not yet been staged or tested on hardware. Both the title ID and the 16-digit build ID prefix must be confirmed directly against the target game build. Furthermore, Atmosphère's launch-time cheat toggle key must permit cheat loading (by default, L is not held).
