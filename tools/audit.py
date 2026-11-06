@@ -130,7 +130,19 @@ def audit_source_text(text):
         ("serviceDispatchOut", "65002"),
         ("serviceDispatchIn", "65102"),
     }
-    for function, _session, command in parsed:
+    for function, session, command in parsed:
+        if (function, session, command) == ("serviceDispatchOut", "pm_session", "4"):
+            if (
+                not re.search(
+                    r"\bService\s*\*\s*pm_session\s*=\s*pmdmntGetServiceSession\(\s*\)\s*;",
+                    text,
+                )
+                or len(re.findall(r"\bpm_session\b", text)) != 2
+            ):
+                raise ValueError(
+                    "pm session is not used only for the application pid probe"
+                )
+            continue
         if (function, command) not in allowed:
             raise ValueError(f"forbidden dmnt:cht call {function} {command}")
 

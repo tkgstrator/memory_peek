@@ -19,6 +19,14 @@ _Static_assert(sizeof(struct dmnt_metadata) == 0x70, "dmnt metadata wire size");
 
 static Service dmnt_session;
 
+/* This sysmodule skips libnx's default HOS-version initialization. On supported
+ * firmware, pm:dmnt GetApplicationProcessId is command 4; the libnx wrapper
+ * would send the pre-5.0 command 5 when hosversionGet() is still zero. */
+static Result get_application_process_id(u64 *pid) {
+    Service *pm_session = pmdmntGetServiceSession();
+    return serviceDispatchOut(pm_session, 4, *pid);
+}
+
 int mp_memory_initialize(void) {
     return R_SUCCEEDED(smGetService(&dmnt_session, "dmnt:cht")) ? 0 : -1;
 }
@@ -37,7 +45,7 @@ static int get_dmnt_metadata(struct dmnt_metadata *metadata) {
 static int begin_snapshot(void *context, struct mp_snapshot *snapshot) {
     (void)context;
     u64 pid = 0;
-    if (R_FAILED(pmdmntGetApplicationProcessId(&pid)) || pid == 0)
+    if (R_FAILED(get_application_process_id(&pid)) || pid == 0)
         return -1;
     struct dmnt_metadata metadata = {0};
     if (get_dmnt_metadata(&metadata) != 0 || metadata.pid != pid || metadata.main_nso.base == 0)
@@ -68,7 +76,7 @@ static int still_current(void *context, const struct mp_snapshot *snapshot) {
     (void)context;
     u64 pid = 0;
     struct dmnt_metadata metadata = {0};
-    return R_SUCCEEDED(pmdmntGetApplicationProcessId(&pid)) && pid == snapshot->pid &&
+    return R_SUCCEEDED(get_application_process_id(&pid)) && pid == snapshot->pid &&
            get_dmnt_metadata(&metadata) == 0 && metadata.pid == pid &&
            metadata.title_id == snapshot->title_id && metadata.main_nso.base == snapshot->main_base;
 }

@@ -7,13 +7,18 @@ SWITCH_LDFLAGS = -specs=$(DEVKITPRO)/libnx/switch.specs -march=armv8-a+crc+crypt
 SWITCH_SOURCES = source/main.c source/memory.c source/server.c source/protocol.c
 
 .PHONY: test clean switch
-test: build/test_protocol build/fake_server
+test: build/test_protocol build/test_memory build/fake_server
 	./build/test_protocol
+	./build/test_memory
 	python3 -m unittest discover -s tests -p 'test_*.py' -v
 
 build/test_protocol: tests/test_protocol.c source/protocol.c source/protocol.h
 	@mkdir -p build
 	$(HOST_CC) $(HOST_CFLAGS) tests/test_protocol.c source/protocol.c -o $@
+
+build/test_memory: tests/test_memory.c tests/include/switch.h source/memory.c source/memory.h source/server.h
+	@mkdir -p build
+	$(HOST_CC) $(HOST_CFLAGS) -Itests/include tests/test_memory.c source/memory.c -o $@
 
 build/fake_server: tests/fake_server.c source/server.c source/server.h source/protocol.c source/protocol.h
 	@mkdir -p build

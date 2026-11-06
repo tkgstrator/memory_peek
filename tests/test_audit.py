@@ -129,6 +129,23 @@ class AuditTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 audit_source_text(forbidden)
 
+    def test_pm_application_pid_probe_is_limited_to_pm_session(self):
+        source = (
+            "Service *pm_session = pmdmntGetServiceSession();\n"
+            "serviceDispatchOut(pm_session, 4, pid);\n"
+        )
+        audit_source_text(source)
+        with self.assertRaises(ValueError):
+            audit_source_text("serviceDispatchOut(&dmnt_session, 4, pid);\n")
+        with self.assertRaises(ValueError):
+            audit_source_text("serviceDispatchOut(pm_session, 4, pid);\n")
+        with self.assertRaises(ValueError):
+            audit_source_text(
+                "Service *pm_session = pmdmntGetServiceSession();\n"
+                "pm_session = &dmnt_session;\n"
+                "serviceDispatchOut(pm_session, 4, pid);\n"
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
