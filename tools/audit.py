@@ -3,11 +3,11 @@
 import argparse
 import hashlib
 import json
-from pathlib import Path
 import re
 import struct
 import subprocess
 import tempfile
+from pathlib import Path
 
 PROGRAM_ID = 0x43004D5045454B01
 SERVICES = {"pm:dmnt", "ldr:dmnt", "pm:info", "bsd:u"}
@@ -120,20 +120,56 @@ def audit_metadata(metadata):
         or by_type["handle_table_size"] != 128
     ):
         raise ValueError("unexpected kernel capability settings")
-    flags = by_type["debug_flags"]
-    # hactool may omit force_debug_prod when it is false.
-    if (
-        set(flags) - {"allow_debug", "force_debug", "force_debug_prod"}
-        or flags.get("allow_debug", False) is not False
-        or flags.get("force_debug") is not True
-        or flags.get("force_debug_prod", False) is not False
-    ):
-        raise ValueError("debug flags granted")
+    # Debug flag names shown by hactool are version-dependent; the raw
+    # descriptors are checked by audit_npdm_debug_capability.
     values = list(by_type["syscalls"].values())
     if len(values) != len(SYSCALLS) or {int(value, 0) for value in values} != SYSCALLS:
         raise ValueError("unexpected syscall grant")
     if {int(value, 0) for value in values} & (set(range(0x61, 0x6A)) | {0x6B, 0x6C}):
         raise ValueError("debug write or control syscall granted")
+
+
+def _section(data, offset, size, magic, magic_offset, kac_field, name):
+    if offset < 0x80 or offset > len(data) or size > len(data) - offset:
+        raise ValueError(f"{name} section outside NPDM")
+    section = data[offset : offset + size]
+    header_size = magic_offset + 0x40
+    if size < header_size or section[magic_offset : magic_offset + 4] != magic:
+        raise ValueError(f"invalid {name} section")
+    kac_offset, kac_size = struct.unpack_from("<II", section, kac_field)
+    if (
+        kac_offset < header_size
+        or kac_offset > size
+        or kac_size > size - kac_offset
+        or kac_size % 4
+    ):
+        raise ValueError(f"{name} kernel capabilities outside section")
+    return struct.unpack_from(f"<{kac_size // 4}I", section, kac_offset)
+
+
+def audit_npdm_debug_capability(npdm):
+    """Require exactly one raw ForceDebug descriptor (0x0008FFFF) in ACI0 and ACID.
+
+    Layout per Switchbrew NPDM: META holds ACI0 offset/size at 0x70/0x74 and ACID
+    offset/size at 0x78/0x7C; ACI0 has its magic at 0x0 and KAC offset/size at
+    0x30/0x34; ACID has its magic at 0x200 and KAC offset/size at 0x230/0x234.
+    Offsets are relative to the start of each section. The raw words are
+    authoritative because hactool's debug flag names vary between versions.
+    """
+    if len(npdm) < 0x80 or npdm[:4] != b"META":
+        raise ValueError("invalid NPDM header")
+    aci0_offset, aci0_size, acid_offset, acid_size = struct.unpack_from(
+        "<IIII", npdm, 0x70
+    )
+    arrays = {
+        "ACI0": _section(npdm, aci0_offset, aci0_size, b"ACI0", 0x0, 0x30, "ACI0"),
+        "ACID": _section(npdm, acid_offset, acid_size, b"ACID", 0x200, 0x230, "ACID"),
+    }
+    for name, words in arrays.items():
+        # Debug descriptor ID: low 17 bits are 0x0FFFF (bit 16 clear).
+        debug = [word for word in words if word & 0x1FFFF == 0x0FFFF]
+        if debug != [0x0008FFFF]:
+            raise ValueError(f"{name} debug capability is not exactly ForceDebug")
 
 
 def audit_symbols(metadata, symbols):
@@ -227,6 +263,7 @@ def audit_artifacts(directory, hactool, nm):
     members = extract_pfs0(nsp)
     if members != {"main": nso, "main.npdm": npdm}:
         raise ValueError("NSP contents differ from audited NSO/NPDM")
+    audit_npdm_debug_capability(npdm)
     with tempfile.TemporaryDirectory() as temporary:
         path = Path(temporary) / "permissions.json"
         subprocess.run(

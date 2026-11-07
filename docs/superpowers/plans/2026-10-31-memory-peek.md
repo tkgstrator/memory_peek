@@ -1,5 +1,7 @@
 # memory_peek Implementation Plan
 
+> Historical plan, superseded by the current [README](../../../README.md) and [read-only debug capability plan](2026-11-07-force-debug-capability.md). The `dmnt:cht` and empty cheat-file steps below are obsolete and must not be deployed.
+
 [日本語版はこちら](2026-10-31-memory-peek.ja.md)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

@@ -1,10 +1,16 @@
 import copy
-from pathlib import Path
+import json
 import struct
 import unittest
+from pathlib import Path
 
-from tools.audit import audit_metadata, audit_symbols, audit_source_text, extract_pfs0
-
+from tools.audit import (
+    audit_metadata,
+    audit_npdm_debug_capability,
+    audit_source_text,
+    audit_symbols,
+    extract_pfs0,
+)
 
 SAFE = {
     "title_id": "0x43004D5045454B01",
@@ -67,14 +73,141 @@ SAFE = {
 }
 
 
+FORCE_DEBUG = 0x0008FFFF
+FORCE_DEBUG_PROD = 0x0004FFFF
+
+
+def build_npdm(aci0=(FORCE_DEBUG,), acid=(FORCE_DEBUG,), magic=b"META"):
+    """Synthetic NPDM: META, then ACI0 (0x40 header) and ACID (0x240 header)."""
+    aci0_kac = struct.pack(f"<{len(aci0)}I", *aci0)
+    acid_kac = struct.pack(f"<{len(acid)}I", *acid)
+    aci0_header = bytearray(0x40)
+    aci0_header[0:4] = b"ACI0"
+    struct.pack_into("<II", aci0_header, 0x30, 0x40, len(aci0_kac))
+    aci0_data = bytes(aci0_header) + aci0_kac
+    acid_header = bytearray(0x240)
+    acid_header[0x200:0x204] = b"ACID"
+    struct.pack_into("<II", acid_header, 0x230, 0x240, len(acid_kac))
+    acid_data = bytes(acid_header) + acid_kac
+    meta = bytearray(0x80)
+    meta[0:4] = magic
+    aci0_offset = 0x80
+    acid_offset = aci0_offset + len(aci0_data)
+    struct.pack_into(
+        "<IIII", meta, 0x70, aci0_offset, len(aci0_data), acid_offset, len(acid_data)
+    )
+    return bytes(meta) + aci0_data + acid_data
+
+
+class NpdmDebugCapabilityTests(unittest.TestCase):
+    def test_accepts_force_debug_in_both_sections(self):
+        audit_npdm_debug_capability(build_npdm())
+        audit_npdm_debug_capability(
+            build_npdm(aci0=(0x1, FORCE_DEBUG, 0x2), acid=(FORCE_DEBUG, 0x3))
+        )
+
+    def test_rejects_wrong_missing_duplicate_or_combined_descriptors(self):
+        for kwargs in (
+            {"aci0": (FORCE_DEBUG_PROD,), "acid": (FORCE_DEBUG_PROD,)},
+            {"aci0": (FORCE_DEBUG,), "acid": (FORCE_DEBUG_PROD,)},
+            {"aci0": (FORCE_DEBUG_PROD,), "acid": (FORCE_DEBUG,)},
+            {"aci0": (), "acid": (FORCE_DEBUG,)},
+            {"aci0": (FORCE_DEBUG,), "acid": (0x1,)},
+            {"aci0": (FORCE_DEBUG, FORCE_DEBUG), "acid": (FORCE_DEBUG,)},
+            {"aci0": (FORCE_DEBUG,), "acid": (FORCE_DEBUG, FORCE_DEBUG_PROD)},
+            {"aci0": (0x000CFFFF,), "acid": (FORCE_DEBUG,)},
+            {"aci0": (FORCE_DEBUG,), "acid": (0x000EFFFF,)},
+            {"aci0": (FORCE_DEBUG,), "acid": (0x0009FFFF,)},
+        ):
+            with self.assertRaises(ValueError, msg=str(kwargs)):
+                audit_npdm_debug_capability(build_npdm(**kwargs))
+
+    def test_rejects_malformed_or_truncated_npdm(self):
+        good = build_npdm()
+        broken_cases = []
+        broken_cases.append(build_npdm(magic=b"ATEM"))
+        broken_cases.append(good[:0x70])
+        broken_cases.append(good[:-1])
+        broken_cases.append(good[:-4])
+        for field in (0x70, 0x78):  # section offset out of range
+            broken = bytearray(good)
+            struct.pack_into("<I", broken, field, 0xFFFFFFF0)
+            broken_cases.append(bytes(broken))
+        for field in (0x74, 0x7C):  # section size beyond the file
+            broken = bytearray(good)
+            struct.pack_into("<I", broken, field, len(good))
+            broken_cases.append(bytes(broken))
+        broken = bytearray(good)  # wrong ACI0 magic
+        broken[0x80:0x84] = b"XXXX"
+        broken_cases.append(bytes(broken))
+        broken = bytearray(good)  # KAC array exceeds its section
+        struct.pack_into("<I", broken, 0x80 + 0x34, 0x1000)
+        broken_cases.append(bytes(broken))
+        broken = bytearray(good)  # KAC size is not a whole number of words
+        struct.pack_into("<I", broken, 0x80 + 0x34, 3)
+        broken_cases.append(bytes(broken))
+        broken = bytearray(good)  # KAC offset points outside its section
+        struct.pack_into("<I", broken, 0x80 + 0x30, 0x1000)
+        broken_cases.append(bytes(broken))
+        for index, case in enumerate(broken_cases):
+            with self.assertRaises(ValueError, msg=f"case {index}"):
+                audit_npdm_debug_capability(case)
+
+    def test_rejects_capability_arrays_inside_section_headers(self):
+        for section_name, section_offset, kac_field, overlapping_offset in (
+            ("ACI0", 0x80, 0x30, 0x20),
+            ("ACID", 0xC4, 0x230, 0x00),
+        ):
+            broken = bytearray(build_npdm())
+            struct.pack_into(
+                "<I", broken, section_offset + overlapping_offset, FORCE_DEBUG
+            )
+            struct.pack_into(
+                "<I", broken, section_offset + kac_field, overlapping_offset
+            )
+            with self.subTest(section=section_name), self.assertRaises(ValueError):
+                audit_npdm_debug_capability(bytes(broken))
+
+    def test_rejects_top_level_section_inside_meta_header(self):
+        broken = bytearray(build_npdm())
+        aci0_size = struct.unpack_from("<I", broken, 0x74)[0]
+        broken[0x20 : 0x20 + aci0_size] = broken[0x80 : 0x80 + aci0_size]
+        struct.pack_into("<I", broken, 0x70, 0x20)
+        with self.assertRaises(ValueError):
+            audit_npdm_debug_capability(bytes(broken))
+
+    def test_raw_capability_is_authoritative_over_hactool_flag_names(self):
+        # hactool's displayed names are version-dependent: the metadata check
+        # accepts whatever labels it shows, and the raw descriptors decide.
+        for labels in (
+            {"allow_debug": False, "force_debug": True, "force_debug_prod": False},
+            {"allow_debug": False, "force_debug": False, "force_debug_prod": True},
+            {"force_debug": True},
+            {},
+        ):
+            fixture = copy.deepcopy(SAFE)
+            fixture["kernel_capabilities"][4]["value"] = labels
+            audit_metadata(fixture)
+        with self.assertRaises(ValueError):
+            audit_npdm_debug_capability(
+                build_npdm(aci0=(FORCE_DEBUG_PROD,), acid=(FORCE_DEBUG_PROD,))
+            )
+
+    def test_source_json_debug_flags(self):
+        capabilities = json.loads(Path("memory_peek.json").read_text())[
+            "kernel_capabilities"
+        ]
+        flags = next(c["value"] for c in capabilities if c["type"] == "debug_flags")
+        self.assertEqual(
+            [flags["allow_debug"], flags["force_debug"], flags["force_debug_prod"]],
+            [False, True, False],
+        )
+
+
 class AuditTests(unittest.TestCase):
     def test_rejects_unsafe_npdm_grants(self):
         audit_metadata(SAFE)
-        omitted = copy.deepcopy(SAFE)
-        del omitted["kernel_capabilities"][4]["value"]["force_debug_prod"]
-        audit_metadata(omitted)  # hactool may omit false flags
         syscalls = lambda x: x["kernel_capabilities"][1]["value"]
-        flags = lambda x: x["kernel_capabilities"][4]["value"]
         for mutation in (
             lambda x: syscalls(x).update({"svcWriteDebugProcessMemory": "0x6b"}),
             lambda x: syscalls(x).update({"svcBreakDebugProcess": "0x61"}),
@@ -85,10 +218,6 @@ class AuditTests(unittest.TestCase):
             lambda x: syscalls(x).update({"svcSetDebugThreadContext": "0x6d"}),
             lambda x: syscalls(x).pop("svcDebugActiveProcess"),
             lambda x: syscalls(x).pop("svcReadDebugProcessMemory"),
-            lambda x: flags(x).update({"force_debug": False}),
-            lambda x: flags(x).pop("force_debug"),
-            lambda x: flags(x).update({"allow_debug": True}),
-            lambda x: flags(x).update({"force_debug_prod": True}),
             lambda x: x["service_access"].append("*"),
             lambda x: x["service_access"].append("dmnt:cht"),
             lambda x: x["service_access"].append("pm:bm"),
