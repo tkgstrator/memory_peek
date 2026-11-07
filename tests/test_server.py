@@ -122,7 +122,8 @@ class ServerTests(unittest.TestCase):
                 b"pm_rc=00000000 pid=000000000000002A attach_rc=00000000 "
                 b"ldr_rc=00000000 modules=2 info_rc=00000000 heap_rc=00000000 "
                 b"title=0100C2500FC20000 main=0000000000001000 "
-                b"heap=0000000000008000\r\n",
+                b"heap=0000000000008000 ldr_init_rc=00000000 info_init_rc=00000000 "
+                b"ldr_ready=1 info_ready=1\r\n",
             )
         with connection("diag_pm_fail") as sock:
             self.assertIn(
@@ -134,6 +135,16 @@ class ServerTests(unittest.TestCase):
             reply = line(sock, "getDiagnostics")
             for field in (b"ldr_rc=00009ABC", b"info_rc=0000DEF0", b"heap_rc=00001111"):
                 self.assertIn(field, reply)
+        with connection("diag_init_fail") as sock:
+            reply = line(sock, "getDiagnostics")
+            self.assertTrue(reply.startswith(b"pm_rc=00000000 pid=000000000000002A"))
+            self.assertTrue(
+                reply.endswith(
+                    b"ldr_init_rc=0000A001 info_init_rc=FFFFFFFF "
+                    b"ldr_ready=0 info_ready=0\r\n"
+                )
+            )
+            self.assertLess(len(reply), 320)
         with connection("diag_unavailable") as sock:
             self.assertEqual(
                 line(sock, "getDiagnostics"), b"ERR READER_UNAVAILABLE\r\n"

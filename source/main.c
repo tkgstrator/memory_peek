@@ -18,10 +18,26 @@ void __libnx_initheap(void) {
 void __appInit(void) {
     if (R_FAILED(smInitialize()))
         diagAbortWithResult(MAKERESULT(Module_Libnx, LibnxError_InitFail_SM));
-    if (R_FAILED(pmdmntInitialize()) || mp_memory_initialize() != 0 ||
-        R_FAILED(socketInitializeDefault())) {
-        diagAbortWithResult(MAKERESULT(Module_Libnx, LibnxError_InitFail_SM));
+    /* Boot services can register after this sysmodule starts. */
+    Result result = 0;
+    for (int attempt = 0; attempt < 60; ++attempt) {
+        result = pmdmntInitialize();
+        if (R_SUCCEEDED(result))
+            break;
+        svcSleepThread(500000000);
     }
+    if (R_FAILED(result))
+        diagAbortWithResult(MAKERESULT(Module_Libnx, LibnxError_InitFail_SM));
+    /* Socket initialization is retried after transient early-boot failures. */
+    for (int attempt = 0; attempt < 60; ++attempt) {
+        result = socketInitializeDefault();
+        if (R_SUCCEEDED(result))
+            break;
+        svcSleepThread(500000000);
+    }
+    if (R_FAILED(result))
+        diagAbortWithResult(MAKERESULT(Module_Libnx, LibnxError_InitFail_SM));
+    /* ldr:dmnt and pm:info initialize on demand after the listener starts. */
 }
 
 void __appExit(void) {
@@ -31,10 +47,11 @@ void __appExit(void) {
     smExit();
 }
 
-int main(void) {
+/* Returns a listening socket, or -1 with nothing left open. */
+static int open_listener(void) {
     int listener = socket(AF_INET, SOCK_STREAM, 0);
     if (listener < 0)
-        return 1;
+        return -1;
     struct sockaddr_in address = {0};
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -42,8 +59,17 @@ int main(void) {
     if (bind(listener, (struct sockaddr *)&address, sizeof(address)) != 0 ||
         listen(listener, 1) != 0) {
         close(listener);
-        return 2;
+        return -1;
     }
+    return listener;
+}
+
+int main(void) {
+    /* Retry with bounded backoff (0.5 s doubling to 5 s) instead of exiting. */
+    int listener;
+    for (u64 delay = 500000000ULL; (listener = open_listener()) < 0;
+         delay = delay < 5000000000ULL ? delay * 2 : 5000000000ULL)
+        svcSleepThread(delay);
     while (1) {
         int client = accept(listener, NULL, NULL);
         if (client < 0) {

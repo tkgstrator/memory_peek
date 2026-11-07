@@ -6,7 +6,7 @@
 
 TCP ポート 6000 で待機し、sys-botbase と互換性のあるシンプルなテキストコマンド方式（改行で区切られた 1 行 1 コマンド形式）を採用しています。NXCTF などの既存ツールからそのまま接続できますが、メモリ書き込み、コントローラー入力の偽装、プロセスのフリーズ、ファイルシステム操作といった余計な機能は一切含まず、メモリの読み取りに必要な最小限の命令のみを提供します。チートサービスおよびチート API は一切使用せず、書き込み・一時停止・制御系の呼び出しもありません。
 
-**ステータス:** クロスコンパイルおよび静的監査（audit）のみ完了しています。実機での Switch 起動、Atmosphère 1.12.1 ランタイム環境、LAN 通信、実際のゲーム内メモリ読み取りは未テストです。対象の SD カードのインベントリ確認、仮の Program ID の衝突チェック、および直接のリカバリ手順の準備が完了するまで、実機へのデプロイを行わないでください。SD カード上に NSP ファイルを配置しただけでは、起動やゲームのメモリ読み取りができることの証明にはなりません。
+**ステータス:** クロスコンパイルと静的監査は通過しています。実機への配置と検証は進行中で、ゲーム内メモリの読出し成功はまだ確認できていません。別の Switch に導入する際は、対象 SD の内容、仮の Program ID の衝突、復旧手順を先に確認してください。SD 上に NSP があるだけでは、実機での動作確認にはなりません。
 
 ゲームを必要とするリクエストごとに、`pm:dmnt` からアプリケーションのプロセス ID を取得し（コマンド 4）、`svcDebugActiveProcess` でアタッチして `svcReadDebugProcessMemory` で読み取ります。Main モジュールのベースとビルド ID は `ldr:dmnt` の `GetProcessModuleInfo` から（sys-botbase と同様、モジュールがちょうど 2 つなら module[1]、それ以外は module[0]）、Title ID は `pm:info` の `GetProgramId` から、ヒープのベースは `svcGetInfo(HeapRegionAddress)` から取得します。デバッグハンドルはあらゆる失敗経路で、成功時もネットワーク送信や 16 進エンコードの前に `svcCloseHandle` で閉じられ、ソケット待ちの間にアタッチを保持することはありません。ただしデバッガのアタッチを検知するタイトルには影響する可能性があります。使用するのはアタッチ・読み取り・クローズのみで、書き込み・制御・クエリ・一時停止の呼び出しはありません。固定した devkitPro ツールチェーンでは JSON 入力を `force_debug_prod` true、`force_debug` false にすると、生成された NPDM の実効 `force_debug` フラグが hactool で true と表示されます。`allow_debug` は false のままです。プロセスは存在するがアタッチや各種取得に失敗した場合は `ERR READER_UNAVAILABLE` を返します。
 
@@ -22,7 +22,7 @@ TCP ポート 6000 で待機し、sys-botbase と互換性のあるシンプル�
 | `getMainNsoBase` | 大文字の 16 進数 16 桁（Main NSO ベースアドレス） |
 | `getBuildID` | ビルド ID の先頭 8 バイト（大文字の 16 進数 16 桁） |
 | `getHeapBase` | 大文字の 16 進数 16 桁（ヒープベースアドレス） |
-| `getDiagnostics` | 読み取り専用プローブの結果を固定順の 16 進 `key=value` で並べた 1 行: `pm_rc`、`pid`、`attach_rc`、`ldr_rc`、`modules`、`info_rc`、`heap_rc`、`title`、`main`、`heap`（下記参照） |
+| `getDiagnostics` | 読み取り専用プローブの結果を固定順の 16 進 `key=value` で並べた 1 行: `pm_rc`、`pid`、`attach_rc`、`ldr_rc`、`modules`、`info_rc`、`heap_rc`、`title`、`main`、`heap`、`ldr_init_rc`、`info_init_rc`、`ldr_ready`、`info_ready`（下記参照） |
 | `isProgramRunning 0x<TITLE_ID>` | 指定したタイトルが現在実行中かどうかに応じて `1` または `0` |
 | `peekMain 0x<OFFSET> 0x<LENGTH>` | Main NSO ベース + オフセットからの大文字 16 進数バイト列 |
 | `peekAbsolute 0x<ADDRESS> 0x<LENGTH>` | 絶対仮想メモリ空間アドレスからの大文字 16 進数バイト列 |
@@ -31,6 +31,8 @@ TCP ポート 6000 で待機し、sys-botbase と互換性のあるシンプル�
 各行は最大 2,048 バイトに制限されており、メモリ読み取り要求は 1 リクエストあたり最大 32 範囲かつ合計 1 MiB までに制限されています。数値引数は 10 進数または `0x` プレフィックス付きの 16 進数を受け付けます。不正な形式や未定義のコマンドに対しては `ERR INVALID_REQUEST` を返します。対象ゲームが存在しない場合は `ERR NO_GAME`、読み取り失敗時は `ERR READ_FAILED`、読み取り中のゲーム切り替え検知時は `ERR GAME_CHANGED` をそれぞれ返します。実行中のアプリケーションをアタッチまたは調査できない場合は `ERR READER_UNAVAILABLE` を返します。
 
 `getDiagnostics` はゲームが実行中でなくても使用できます。同じプローブを実行してデバッグハンドルを閉じ、生の 32 ビット結果（`pm_rc`、`attach_rc`、`ldr_rc`、`info_rc`、`heap_rc`。8 桁）と `pid`、`title`、`main`、`heap`（16 桁）、`modules`（個数）を返します。未到達または失敗した手順の値は 0 です。`pm_rc` が 0 かつ `pid` が 0 以外でない限りアタッチは行いません。
+
+`ldr:dmnt` と `pm:info` は待受け開始後に必要になったとき初期化します。失敗したサービスは後のリクエストで個別に再試行し、成功済みのサービスは二重に初期化しません。`ldr_init_rc` と `info_init_rc` は直近の初期化試行の生の結果（未試行は `FFFFFFFF`）、`ldr_ready` / `info_ready` は各サービスが使用可能なら `1` です。どちらかが未準備の間はデバッグアタッチも `ldr:dmnt`/`pm:info` の呼び出しも行わず、アプリケーションが実行中のとき `ERR READER_UNAVAILABLE` を返します。起動直後の `pm:dmnt` と BSD ソケットの初期化は最大 30 秒間再試行します。待ち受けソケットの作成・bind・listen に失敗した場合は、終了せず上限付きの待機（0.5 秒から最大 5 秒）で再試行します。
 
 メモリ読み取りは、成功応答のバイト列を送信する前に全体がバッファリングされ、デバッグアタッチも解放されます。認証や暗号化の仕組みはありません。サービス稼働中は、同一ネットワークから接続可能なすべてのクライアントがゲームメモリの読み取りを要求できます。
 

@@ -12,6 +12,7 @@ static s32 module_count;
 static LoaderModuleInfo module_table[2];
 static int next_handle, open_handles, attach_calls, close_calls, read_calls;
 static int ldr_up, info_up, pm_calls;
+static int ldr_init_calls, info_init_calls;
 static int sequence_attach_before_ldr, ldr_saw_open_handle, heap_saw_open_handle;
 static u64 program_id_after_first;
 static int program_queries;
@@ -24,12 +25,16 @@ Result test_service_dispatch_out(Service *service, int command, void *output, si
     return pm_rc;
 }
 Result ldrDmntInitialize(void) {
+    assert(!ldr_up); /* never initialized twice */
+    ++ldr_init_calls;
     if (ldr_init_rc == 0)
         ldr_up = 1;
     return ldr_init_rc;
 }
 void ldrDmntExit(void) { ldr_up = 0; }
 Result pminfoInitialize(void) {
+    assert(!info_up);
+    ++info_init_calls;
     if (info_init_rc == 0)
         info_up = 1;
     return info_init_rc;
@@ -94,6 +99,7 @@ static void reset(void) {
         module_table[1].build_id[i] = (u8)(0xA0 + i);
     }
     open_handles = attach_calls = close_calls = read_calls = pm_calls = program_queries = 0;
+    ldr_init_calls = info_init_calls = 0;
     sequence_attach_before_ldr = ldr_saw_open_handle = heap_saw_open_handle = 0;
 }
 
@@ -110,13 +116,21 @@ int main(void) {
     assert(mp_memory_initialize() == 0 && ldr_up && info_up);
     mp_memory_exit();
     assert(!ldr_up && !info_up);
+    /* Partial init: the failing service is recorded, the other is retained. */
     reset();
-    info_init_rc = 1;
-    assert(mp_memory_initialize() != 0 && !ldr_up && !info_up);
+    info_init_rc = 0x11;
+    assert(mp_memory_initialize() != 0 && ldr_up && !info_up);
+    assert(mp_memory_initialize() != 0 && ldr_init_calls == 1 && info_init_calls == 2);
+    info_init_rc = 0;
+    assert(mp_memory_initialize() == 0 && ldr_up && info_up && ldr_init_calls == 1);
+    assert(mp_memory_initialize() == 0 && ldr_init_calls == 1 && info_init_calls == 3);
+    mp_memory_exit();
     reset();
-    ldr_init_rc = 1;
-    assert(mp_memory_initialize() != 0 && !ldr_up && !info_up);
-    reset();
+    ldr_init_rc = 0x22;
+    assert(mp_memory_initialize() != 0 && !ldr_up && info_up);
+    mp_memory_exit();
+    assert(!ldr_up && !info_up);
+    ldr_init_rc = 0;
     assert(mp_memory_initialize() == 0);
 
     /* Successful begin: two modules selects module[1]; handle stays open until end. */
@@ -209,6 +223,37 @@ int main(void) {
     assert(mp_switch_backend.diagnose(NULL, &d) == 0);
     assert(d.ldr_rc == 0x33 && d.info_rc == 0x44 && d.heap_rc == 0x55 && d.main_base == 0);
     assert(d.title_id == 0 && open_handles == 0 && close_calls == 1);
+
+    /* Services down at boot: no attach, no ldr/pminfo calls, begin is unavailable (-2). */
+    mp_memory_exit();
+    reset();
+    ldr_init_rc = 0x33;
+    info_init_rc = 0x44;
+    expect_failure(-2, 0);
+    assert(mp_switch_backend.diagnose(NULL, &d) == 0);
+    assert(d.ldr_ready == 0 && d.info_ready == 0 && d.ldr_init_rc == 0x33 &&
+           d.info_init_rc == 0x44 && d.pid == 42 && d.attach_rc == 0 && attach_calls == 0);
+    assert(ldr_init_calls == 2 && info_init_calls == 2); /* retried on demand */
+    /* A no-game answer still wins when the pid is absent. */
+    pm_rc = 0x20F;
+    expect_failure(-1, 0);
+    pm_rc = 0;
+    /* Partial: ldr recovers, pm:info still down; nothing is attached. */
+    ldr_init_rc = 0;
+    expect_failure(-2, 0);
+    assert(ldr_up && !info_up && ldr_init_calls == 4);
+    assert(mp_switch_backend.diagnose(NULL, &d) == 0);
+    assert(d.ldr_ready == 1 && d.info_ready == 0 && d.ldr_init_rc == 0 && d.info_init_rc == 0x44);
+    assert(attach_calls == 0 && ldr_init_calls == 4 && info_init_calls == 5);
+    /* Later recovery: a normal snapshot works and handles are closed. */
+    info_init_rc = 0;
+    assert(mp_switch_backend.begin(NULL, &snapshot) == 0);
+    assert(snapshot.pid == 42 && open_handles == 1 && ldr_init_calls == 4 && info_init_calls == 6);
+    mp_switch_backend.end(NULL, &snapshot);
+    assert(open_handles == 0 && close_calls == 1);
+    assert(mp_switch_backend.diagnose(NULL, &d) == 0);
+    assert(d.ldr_ready == 1 && d.info_ready == 1 && d.modules == 2 && close_calls == 2);
+    assert(ldr_init_calls == 4 && info_init_calls == 6); /* no double init */
 
     mp_memory_exit();
     puts("memory tests passed");

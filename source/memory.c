@@ -6,7 +6,10 @@
 /* Atmosphere pm::ResultProcessNotFound when no application is running. */
 #define MP_PM_PROCESS_NOT_FOUND 0x20F
 
+/* Raw initialization result per service; 0xFFFFFFFF until first attempted. */
+#define MP_INIT_NOT_ATTEMPTED ((Result)0xFFFFFFFF)
 static int ldr_ready, info_ready;
+static Result ldr_init_rc = MP_INIT_NOT_ATTEMPTED, info_init_rc = MP_INIT_NOT_ATTEMPTED;
 
 /* This sysmodule skips libnx's default HOS-version initialization. On supported
  * firmware, pm:dmnt GetApplicationProcessId is command 4; the libnx wrapper
@@ -16,16 +19,18 @@ static Result get_application_process_id(u64 *pid) {
     return serviceDispatchOut(pm_session, 4, *pid);
 }
 
+/* Attempts only the services not yet up; successes are retained and never initialized
+ * twice. Failures are recorded, not fatal. Returns 0 when both are ready. */
 int mp_memory_initialize(void) {
-    if (R_FAILED(ldrDmntInitialize()))
-        return -1;
-    ldr_ready = 1;
-    if (R_FAILED(pminfoInitialize())) {
-        mp_memory_exit();
-        return -1;
+    if (!ldr_ready) {
+        ldr_init_rc = ldrDmntInitialize();
+        ldr_ready = R_SUCCEEDED(ldr_init_rc);
     }
-    info_ready = 1;
-    return 0;
+    if (!info_ready) {
+        info_init_rc = pminfoInitialize();
+        info_ready = R_SUCCEEDED(info_init_rc);
+    }
+    return ldr_ready && info_ready ? 0 : -1;
 }
 
 void mp_memory_exit(void) {
@@ -34,6 +39,7 @@ void mp_memory_exit(void) {
     if (ldr_ready)
         ldrDmntExit();
     info_ready = ldr_ready = 0;
+    ldr_init_rc = info_init_rc = MP_INIT_NOT_ATTEMPTED;
 }
 
 /* One read-only probe: pm pid, debug attach, loader modules, program id, heap.
@@ -54,12 +60,19 @@ static void close_handle(Handle *handle) {
 static void run_probe(struct probe *probe) {
     memset(probe, 0, sizeof(*probe));
     struct mp_diagnostics *d = &probe->d;
+    if (!ldr_ready || !info_ready)
+        mp_memory_initialize();
+    d->ldr_init_rc = (uint32_t)ldr_init_rc;
+    d->info_init_rc = (uint32_t)info_init_rc;
+    d->ldr_ready = (uint32_t)ldr_ready;
+    d->info_ready = (uint32_t)info_ready;
     u64 pid = 0;
     d->pm_rc = (uint32_t)get_application_process_id(&pid);
     if (d->pm_rc != 0)
         return;
     d->pid = pid;
-    if (pid == 0)
+    /* Never attach or call ldr/pminfo while either service is unavailable. */
+    if (pid == 0 || !ldr_ready || !info_ready)
         return;
 
     Handle handle = 0;
@@ -93,8 +106,9 @@ static void run_probe(struct probe *probe) {
 
 static int probe_complete(const struct probe *probe) {
     const struct mp_diagnostics *d = &probe->d;
-    return d->pm_rc == 0 && d->pid != 0 && d->attach_rc == 0 && d->ldr_rc == 0 && d->modules >= 1 &&
-           d->main_base != 0 && d->info_rc == 0 && d->heap_rc == 0;
+    return d->ldr_ready && d->info_ready && d->pm_rc == 0 && d->pid != 0 && d->attach_rc == 0 &&
+           d->ldr_rc == 0 && d->modules >= 1 && d->main_base != 0 && d->info_rc == 0 &&
+           d->heap_rc == 0;
 }
 
 static int begin_snapshot(void *context, struct mp_snapshot *snapshot) {
@@ -132,7 +146,7 @@ static int read_memory(void *context, const struct mp_snapshot *snapshot, uint64
 static int still_current(void *context, const struct mp_snapshot *snapshot) {
     (void)context;
     u64 pid = 0, title = 0;
-    return R_SUCCEEDED(get_application_process_id(&pid)) && pid == snapshot->pid &&
+    return info_ready && R_SUCCEEDED(get_application_process_id(&pid)) && pid == snapshot->pid &&
            R_SUCCEEDED(pminfoGetProgramId(&title, pid)) && title == snapshot->title_id;
 }
 

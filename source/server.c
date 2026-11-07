@@ -37,13 +37,16 @@ static int reply(int fd, const struct mp_request *request, const struct mp_backe
         struct mp_diagnostics d = {0};
         if (!backend->diagnose || backend->diagnose(backend->context, &d) != 0)
             return send_text(fd, "ERR READER_UNAVAILABLE\r\n");
-        char text[256];
+        char text[384];
         snprintf(text, sizeof(text),
                  "pm_rc=%08" PRIX32 " pid=%016" PRIX64 " attach_rc=%08" PRIX32 " ldr_rc=%08" PRIX32
                  " modules=%" PRIX32 " info_rc=%08" PRIX32 " heap_rc=%08" PRIX32
-                 " title=%016" PRIX64 " main=%016" PRIX64 " heap=%016" PRIX64 "\r\n",
+                 " title=%016" PRIX64 " main=%016" PRIX64 " heap=%016" PRIX64
+                 " ldr_init_rc=%08" PRIX32 " info_init_rc=%08" PRIX32
+                 " ldr_ready=%u info_ready=%u\r\n",
                  d.pm_rc, d.pid, d.attach_rc, d.ldr_rc, d.modules, d.info_rc, d.heap_rc, d.title_id,
-                 d.main_base, d.heap_base);
+                 d.main_base, d.heap_base, d.ldr_init_rc, d.info_init_rc, d.ldr_ready ? 1u : 0u,
+                 d.info_ready ? 1u : 0u);
         return send_text(fd, text);
     }
 

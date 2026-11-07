@@ -43,6 +43,7 @@ static int diagnose(void *context, struct mp_diagnostics *out) {
     struct scenario *scenario = context;
     memset(out, 0, sizeof(*out));
     out->pid = 0x2A;
+    out->ldr_ready = out->info_ready = 1;
     if (strcmp(scenario->name, "diag_pm_fail") == 0) {
         out->pm_rc = 0x1234;
         out->pid = 0;
@@ -52,6 +53,10 @@ static int diagnose(void *context, struct mp_diagnostics *out) {
         out->ldr_rc = 0x9ABC;
         out->info_rc = 0xDEF0;
         out->heap_rc = 0x1111;
+    } else if (strcmp(scenario->name, "diag_init_fail") == 0) {
+        out->ldr_init_rc = 0xA001;
+        out->info_init_rc = 0xFFFFFFFF;
+        out->ldr_ready = out->info_ready = 0;
     } else if (strcmp(scenario->name, "diag_unavailable") == 0) {
         return -1;
     } else {

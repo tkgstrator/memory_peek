@@ -160,7 +160,7 @@ def audit_source_text(text):
     for name in re.findall(r"\bsvc[A-Z][A-Za-z0-9_]*", text):
         if name not in ALLOWED_SVCS:
             raise ValueError(f"unlisted SVC {name}")
-    for name in re.findall(r"\b(?:pmdmnt|ldrDmnt|pminfo)[A-Za-z0-9_]*", text):
+    for name in re.findall(r"\b((?:pmdmnt|ldrDmnt|pminfo)[A-Za-z0-9_]*)\s*\(", text):
         if name not in ALLOWED_SERVICE_WRAPPERS:
             raise ValueError(f"unlisted service wrapper {name}")
     calls = re.findall(r"\bserviceDispatch[A-Za-z0-9_]*\s*\(", text)

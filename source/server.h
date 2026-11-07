@@ -26,6 +26,11 @@ struct mp_diagnostics {
     uint64_t title_id;
     uint64_t main_base;
     uint64_t heap_base;
+    /* Raw ldr:dmnt / pm:info initialization results and whether each service is usable. */
+    uint32_t ldr_init_rc;
+    uint32_t info_init_rc;
+    uint32_t ldr_ready;
+    uint32_t info_ready;
 };
 
 struct mp_backend {
