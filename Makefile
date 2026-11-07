@@ -22,7 +22,7 @@ build/test_memory: tests/test_memory.c tests/include/switch.h source/memory.c so
 
 build/fake_server: tests/fake_server.c source/server.c source/server.h source/protocol.c source/protocol.h
 	@mkdir -p build
-	$(HOST_CC) $(HOST_CFLAGS) tests/fake_server.c source/server.c source/protocol.c -o $@
+	$(HOST_CC) $(HOST_CFLAGS) -DMP_SEND=mp_test_send tests/fake_server.c source/server.c source/protocol.c -o $@
 
 switch: build/switch/memory_peek.nsp
 	python3 tools/audit.py build/switch --hactool $(SWITCH_TOOLS)/hactool --nm $(DEVKITPRO)/devkitA64/bin/aarch64-none-elf-nm

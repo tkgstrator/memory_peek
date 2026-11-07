@@ -12,7 +12,7 @@
   "is_64_bit": true,
   "address_space_type": 3,
   "filesystem_access": {"permissions": "0x0"},
-  "service_access": ["pm:dmnt", "dmnt:cht", "bsd:u"],
+  "service_access": ["pm:dmnt", "ldr:dmnt", "pm:info", "bsd:u"],
   "service_host": [],
   "kernel_capabilities": [
     {"type": "kernel_flags", "value": {
@@ -31,12 +31,13 @@
       "svcSignalProcessWideKey": "0x1d", "svcConnectToNamedPort": "0x1f",
       "svcSendSyncRequest": "0x21", "svcBreak": "0x26",
       "svcReturnFromException": "0x28",
-      "svcGetInfo": "0x29", "svcUnmapTransferMemory": "0x52"
+      "svcGetInfo": "0x29", "svcUnmapTransferMemory": "0x52",
+      "svcDebugActiveProcess": "0x60", "svcReadDebugProcessMemory": "0x6a"
     }},
     {"type": "min_kernel_version", "value": "0x0030"},
     {"type": "handle_table_size", "value": 128},
     {"type": "debug_flags", "value": {
-      "allow_debug": false, "force_debug": false, "force_debug_prod": false
+      "allow_debug": false, "force_debug": false, "force_debug_prod": true
     }}
   ]
 }

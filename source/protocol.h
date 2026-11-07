@@ -18,7 +18,8 @@ enum mp_operation {
     MP_IS_RUNNING,
     MP_PEEK_MAIN,
     MP_PEEK_ABSOLUTE,
-    MP_PEEK_ABSOLUTE_MULTI
+    MP_PEEK_ABSOLUTE_MULTI,
+    MP_DIAGNOSTICS
 };
 
 struct mp_range {

@@ -7,9 +7,16 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 
+/* Tests substitute a checking send to prove the attach is closed before network I/O. */
+#ifdef MP_SEND
+ssize_t MP_SEND(int fd, const void *data, size_t length, int flags);
+#else
+#define MP_SEND send
+#endif
+
 static int send_all(int fd, const char *data, size_t length) {
     while (length) {
-        ssize_t count = send(fd, data, length, 0);
+        ssize_t count = MP_SEND(fd, data, length, 0);
         if (count <= 0)
             return -1;
         data += count;
@@ -26,6 +33,20 @@ static int reply(int fd, const struct mp_request *request, const struct mp_backe
     if (request->operation == MP_IDENTITY)
         return send_text(fd, "memory_peek/1\r\n");
 
+    if (request->operation == MP_DIAGNOSTICS) {
+        struct mp_diagnostics d = {0};
+        if (!backend->diagnose || backend->diagnose(backend->context, &d) != 0)
+            return send_text(fd, "ERR READER_UNAVAILABLE\r\n");
+        char text[256];
+        snprintf(text, sizeof(text),
+                 "pm_rc=%08" PRIX32 " pid=%016" PRIX64 " attach_rc=%08" PRIX32 " ldr_rc=%08" PRIX32
+                 " modules=%" PRIX32 " info_rc=%08" PRIX32 " heap_rc=%08" PRIX32
+                 " title=%016" PRIX64 " main=%016" PRIX64 " heap=%016" PRIX64 "\r\n",
+                 d.pm_rc, d.pid, d.attach_rc, d.ldr_rc, d.modules, d.info_rc, d.heap_rc, d.title_id,
+                 d.main_base, d.heap_base);
+        return send_text(fd, text);
+    }
+
     struct mp_snapshot snapshot = {0};
     int begin_result = backend->begin(backend->context, &snapshot);
     if (begin_result != 0) {
@@ -35,8 +56,13 @@ static int reply(int fd, const struct mp_request *request, const struct mp_backe
             return send_text(fd, "0\r\n");
         return send_text(fd, "ERR NO_GAME\r\n");
     }
-    int result = 0;
+
+    /* Everything that needs the debug attach happens here; end() runs before any
+     * network send or hex encoding so the target is never held across I/O. */
     char response[32];
+    response[0] = 0;
+    uint8_t *bytes = NULL;
+    const char *error = NULL;
     switch (request->operation) {
     case MP_TITLE_ID:
         snprintf(response, sizeof(response), "%016" PRIX64 "\r\n", snapshot.title_id);
@@ -60,66 +86,61 @@ static int reply(int fd, const struct mp_request *request, const struct mp_backe
         strcpy(response, snapshot.title_id == request->program_id ? "1\r\n" : "0\r\n");
         break;
     default:
-        response[0] = 0;
+        bytes = malloc(request->total_length);
+        if (!bytes) {
+            error = "ERR READ_FAILED\r\n";
+            break;
+        }
+        size_t offset = 0;
+        for (uint32_t i = 0; i < request->count && !error; ++i) {
+            uint64_t base = request->ranges[i].address;
+            if (request->operation == MP_PEEK_MAIN) {
+                if (base > UINT64_MAX - snapshot.main_base ||
+                    base + snapshot.main_base > UINT64_MAX - request->ranges[i].length) {
+                    error = "ERR READ_FAILED\r\n";
+                    break;
+                }
+                base += snapshot.main_base;
+            }
+            uint32_t remaining = request->ranges[i].length;
+            while (remaining) {
+                size_t chunk = remaining > 65536 ? 65536 : remaining;
+                if (backend->read(backend->context, &snapshot, base, bytes + offset, chunk) != 0) {
+                    error = "ERR READ_FAILED\r\n";
+                    break;
+                }
+                base += chunk;
+                offset += chunk;
+                remaining -= (uint32_t)chunk;
+            }
+        }
         break;
     }
-    if (response[0]) {
-        result = send_text(fd, backend->still_current(backend->context, &snapshot)
-                                   ? response
-                                   : "ERR GAME_CHANGED\r\n");
+    if (!error && !backend->still_current(backend->context, &snapshot))
+        error = "ERR GAME_CHANGED\r\n";
+    backend->end(backend->context, &snapshot);
+
+    int result;
+    if (error) {
+        result = send_text(fd, error);
+    } else if (response[0]) {
+        result = send_text(fd, response);
     } else {
-        uint8_t *bytes = malloc(request->total_length);
-        if (!bytes) {
+        char *encoded = malloc((size_t)request->total_length * 2 + 2);
+        if (!encoded) {
             result = send_text(fd, "ERR READ_FAILED\r\n");
         } else {
-            size_t offset = 0;
-            int failed = 0;
-            for (uint32_t i = 0; i < request->count && !failed; ++i) {
-                uint64_t base = request->ranges[i].address;
-                if (request->operation == MP_PEEK_MAIN) {
-                    if (base > UINT64_MAX - snapshot.main_base ||
-                        base + snapshot.main_base > UINT64_MAX - request->ranges[i].length) {
-                        failed = 1;
-                        break;
-                    }
-                    base += snapshot.main_base;
-                }
-                uint32_t remaining = request->ranges[i].length;
-                while (remaining) {
-                    size_t chunk = remaining > 65536 ? 65536 : remaining;
-                    if (backend->read(backend->context, &snapshot, base, bytes + offset, chunk) !=
-                        0) {
-                        failed = 1;
-                        break;
-                    }
-                    base += chunk;
-                    offset += chunk;
-                    remaining -= (uint32_t)chunk;
-                }
+            for (size_t i = 0; i < request->total_length; ++i) {
+                encoded[i * 2] = hex[bytes[i] >> 4];
+                encoded[i * 2 + 1] = hex[bytes[i] & 15];
             }
-            if (failed)
-                result = send_text(fd, "ERR READ_FAILED\r\n");
-            else if (!backend->still_current(backend->context, &snapshot))
-                result = send_text(fd, "ERR GAME_CHANGED\r\n");
-            else {
-                char *encoded = malloc((size_t)request->total_length * 2 + 2);
-                if (!encoded)
-                    result = send_text(fd, "ERR READ_FAILED\r\n");
-                else {
-                    for (size_t i = 0; i < request->total_length; ++i) {
-                        encoded[i * 2] = hex[bytes[i] >> 4];
-                        encoded[i * 2 + 1] = hex[bytes[i] & 15];
-                    }
-                    encoded[request->total_length * 2] = '\r';
-                    encoded[request->total_length * 2 + 1] = '\n';
-                    result = send_all(fd, encoded, (size_t)request->total_length * 2 + 2);
-                    free(encoded);
-                }
-            }
-            free(bytes);
+            encoded[request->total_length * 2] = '\r';
+            encoded[request->total_length * 2 + 1] = '\n';
+            result = send_all(fd, encoded, (size_t)request->total_length * 2 + 2);
+            free(encoded);
         }
     }
-    backend->end(backend->context, &snapshot);
+    free(bytes);
     return result;
 }
 

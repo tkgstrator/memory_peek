@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 
 PROGRAM_ID = 0x43004D5045454B01
-SERVICES = {"pm:dmnt", "dmnt:cht", "bsd:u"}
+SERVICES = {"pm:dmnt", "ldr:dmnt", "pm:info", "bsd:u"}
 SYSCALLS = {
     0x01,
     0x02,
@@ -35,11 +35,21 @@ SYSCALLS = {
     0x28,
     0x29,
     0x52,
+    0x60,
+    0x6A,
 }
 FORBIDDEN_APIS = {
-    "svcDebugActiveProcess",
-    "svcReadDebugProcessMemory",
     "svcWriteDebugProcessMemory",
+    "svcGetDebugEvent",
+    "svcContinueDebugEvent",
+    "svcGetDebugThreadContext",
+    "svcQueryDebugProcessMemory",
+    "svcLegacyContinueDebugEvent",
+    "svcGetProcessList",
+    "svcGetThreadList",
+    "dmnt:cht",
+    "dmntchtInitialize",
+    "dmntchtExit",
     "svcBreakDebugProcess",
     "svcTerminateDebugProcess",
     "svcSetDebugThreadContext",
@@ -55,6 +65,25 @@ FORBIDDEN_APIS = {
     "fsdevMountSdmc",
     "fopen",
     "system",
+}
+
+ALLOWED_SVCS = {
+    "svcDebugActiveProcess",
+    "svcReadDebugProcessMemory",
+    "svcGetInfo",
+    "svcCloseHandle",
+    "svcSleepThread",
+}
+ALLOWED_SERVICE_WRAPPERS = {
+    "pmdmntInitialize",
+    "pmdmntExit",
+    "pmdmntGetServiceSession",
+    "ldrDmntInitialize",
+    "ldrDmntExit",
+    "ldrDmntGetProcessModuleInfo",
+    "pminfoInitialize",
+    "pminfoExit",
+    "pminfoGetProgramId",
 }
 
 
@@ -91,13 +120,20 @@ def audit_metadata(metadata):
         or by_type["handle_table_size"] != 128
     ):
         raise ValueError("unexpected kernel capability settings")
-    if by_type["debug_flags"] != {"allow_debug": False, "force_debug": False}:
+    flags = by_type["debug_flags"]
+    # hactool may omit force_debug_prod when it is false.
+    if (
+        set(flags) - {"allow_debug", "force_debug", "force_debug_prod"}
+        or flags.get("allow_debug", False) is not False
+        or flags.get("force_debug") is not True
+        or flags.get("force_debug_prod", False) is not False
+    ):
         raise ValueError("debug flags granted")
     values = list(by_type["syscalls"].values())
     if len(values) != len(SYSCALLS) or {int(value, 0) for value in values} != SYSCALLS:
         raise ValueError("unexpected syscall grant")
-    if 0x6B in {int(value, 0) for value in values}:
-        raise ValueError("debug write syscall granted")
+    if {int(value, 0) for value in values} & (set(range(0x61, 0x6A)) | {0x6B, 0x6C}):
+        raise ValueError("debug write or control syscall granted")
 
 
 def audit_symbols(metadata, symbols):
@@ -106,7 +142,7 @@ def audit_symbols(metadata, symbols):
         if entry.get("type") == "syscalls":
             granted.update(entry["value"])
     linked = set(
-        re.findall(r"^[0-9a-fA-F]+ [TtUu] (svc[A-Za-z0-9_]+)$", symbols, re.MULTILINE)
+        re.findall(r"^[0-9a-fA-F]+ [TtUuWw] (svc[A-Za-z0-9_]+)$", symbols, re.MULTILINE)
     )
     missing = linked - granted
     if missing:
@@ -117,19 +153,23 @@ def audit_source_text(text):
     forbidden = re.compile(
         r"\b(?:" + "|".join(re.escape(name) for name in FORBIDDEN_APIS) + r")\b"
     )
+    if match := re.search(r"dmnt:?cht|cheat", text, re.IGNORECASE):
+        raise ValueError(f"cheat API reference {match.group()}")
     if match := forbidden.search(text):
         raise ValueError(f"forbidden source API {match.group()}")
+    for name in re.findall(r"\bsvc[A-Z][A-Za-z0-9_]*", text):
+        if name not in ALLOWED_SVCS:
+            raise ValueError(f"unlisted SVC {name}")
+    for name in re.findall(r"\b(?:pmdmnt|ldrDmnt|pminfo)[A-Za-z0-9_]*", text):
+        if name not in ALLOWED_SERVICE_WRAPPERS:
+            raise ValueError(f"unlisted service wrapper {name}")
     calls = re.findall(r"\bserviceDispatch[A-Za-z0-9_]*\s*\(", text)
     parsed = re.findall(
         r"\b(serviceDispatch[A-Za-z0-9_]*)\s*\(\s*([^,()]+),\s*([^,\s)]+)", text
     )
     if len(calls) != len(parsed):
         raise ValueError("unparsed service dispatch call")
-    allowed = {
-        ("serviceDispatchOut", "65000"),
-        ("serviceDispatchOut", "65002"),
-        ("serviceDispatchIn", "65102"),
-    }
+    allowed = set()  # the pm:dmnt application pid probe is the only raw dispatch
     for function, session, command in parsed:
         if (function, session, command) == ("serviceDispatchOut", "pm_session", "4"):
             if (
@@ -144,7 +184,7 @@ def audit_source_text(text):
                 )
             continue
         if (function, command) not in allowed:
-            raise ValueError(f"forbidden dmnt:cht call {function} {command}")
+            raise ValueError(f"forbidden service call {function} {command}")
 
 
 def extract_pfs0(data):
@@ -204,7 +244,7 @@ def audit_artifacts(directory, hactool, nm):
         metadata = json.loads(path.read_text())
         audit_metadata(metadata)
     source_root = Path(__file__).resolve().parent.parent / "source"
-    for path in source_root.glob("*.[ch]"):
+    for path in source_root.rglob("*.[ch]"):
         try:
             audit_source_text(path.read_text())
         except ValueError as error:

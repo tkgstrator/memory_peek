@@ -9,6 +9,19 @@
 struct scenario {
     const char *name;
 };
+
+/* Models the debug attach: begin opens it, end closes it. */
+static int open_attaches;
+/* Substituted for send() in server.c (-DMP_SEND): sending while an attach is open is a bug. */
+ssize_t mp_test_send(int fd, const void *data, size_t length, int flags) {
+    (void)flags;
+    if (open_attaches != 0) {
+        fprintf(stderr, "send with open attach\n");
+        abort();
+    }
+    return write(fd, data, length);
+}
+
 static int begin(void *context, struct mp_snapshot *snapshot) {
     struct scenario *scenario = context;
     if (strcmp(scenario->name, "no_game") == 0)
@@ -22,6 +35,31 @@ static int begin(void *context, struct mp_snapshot *snapshot) {
     snapshot->heap_base = 0x8000;
     for (int i = 0; i < 8; ++i)
         snapshot->build_id[i] = (uint8_t)(0xA0 + i);
+    snapshot->debug_handle = 0x101;
+    ++open_attaches;
+    return 0;
+}
+static int diagnose(void *context, struct mp_diagnostics *out) {
+    struct scenario *scenario = context;
+    memset(out, 0, sizeof(*out));
+    out->pid = 0x2A;
+    if (strcmp(scenario->name, "diag_pm_fail") == 0) {
+        out->pm_rc = 0x1234;
+        out->pid = 0;
+    } else if (strcmp(scenario->name, "diag_attach_fail") == 0) {
+        out->attach_rc = 0x5678;
+    } else if (strcmp(scenario->name, "diag_partial") == 0) {
+        out->ldr_rc = 0x9ABC;
+        out->info_rc = 0xDEF0;
+        out->heap_rc = 0x1111;
+    } else if (strcmp(scenario->name, "diag_unavailable") == 0) {
+        return -1;
+    } else {
+        out->modules = 2;
+        out->title_id = 0x0100C2500FC20000ULL;
+        out->main_base = 0x1000;
+        out->heap_base = 0x8000;
+    }
     return 0;
 }
 static int read_memory(void *context, const struct mp_snapshot *snapshot, uint64_t address,
@@ -40,13 +78,16 @@ static int still_current(void *context, const struct mp_snapshot *snapshot) {
 }
 static void end(void *context, struct mp_snapshot *snapshot) {
     (void)context;
-    (void)snapshot;
+    if (snapshot->debug_handle) {
+        snapshot->debug_handle = 0;
+        --open_attaches;
+    }
 }
 int main(int argc, char **argv) {
     if (argc != 2)
         return 2;
     struct scenario scenario = {argv[1]};
-    struct mp_backend backend = {&scenario, begin, read_memory, still_current, end};
+    struct mp_backend backend = {&scenario, begin, read_memory, still_current, end, diagnose};
     int server = socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in address = {0};
     address.sin_family = AF_INET;
@@ -66,5 +107,5 @@ int main(int argc, char **argv) {
         close(client);
     }
     close(server);
-    return 0;
+    return open_attaches == 0 ? 0 : 9;
 }

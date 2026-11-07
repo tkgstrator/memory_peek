@@ -46,8 +46,10 @@ int main(void) {
     }
     while (1) {
         int client = accept(listener, NULL, NULL);
-        if (client < 0)
+        if (client < 0) {
+            svcSleepThread(100000000);
             continue;
+        }
         mp_serve_client(client, &mp_switch_backend, 5);
         close(client);
     }
