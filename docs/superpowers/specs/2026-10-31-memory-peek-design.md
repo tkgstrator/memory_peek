@@ -1,5 +1,7 @@
 # memory_peek design
 
+> Historical design, superseded by the current [README](../../../README.md) and [read-only debug capability plan](../plans/2026-11-07-force-debug-capability.md). The `dmnt:cht` and empty cheat-file approach below is obsolete and must not be deployed.
+
 [日本語版はこちら](2026-10-31-memory-peek-design.ja.md)
 
 The user wants an Atmosphère 1.12.1 environment running strictly the necessary custom sysmodules: FTP and game-memory reading. Album must open normally, game LayeredFS and external ExeFS/IPS modifications must be disabled, and the stock sys-botbase must not run. Because the target Switch and SD card are not immediately accessible, this repository delivers a locally built, reviewable read-only memory reader; hardware installation and runtime operational claims require subsequent live SD inventorying and on-device testing.

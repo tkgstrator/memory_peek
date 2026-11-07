@@ -33,9 +33,10 @@ static int metadata_operation(const char *command, enum mp_operation *operation)
     static const struct {
         const char *name;
         enum mp_operation operation;
-    } commands[] = {{"getVersion", MP_VERSION},  {"getIdentity", MP_IDENTITY},
-                    {"getTitleID", MP_TITLE_ID}, {"getMainNsoBase", MP_MAIN_BASE},
-                    {"getBuildID", MP_BUILD_ID}, {"getHeapBase", MP_HEAP_BASE}};
+    } commands[] = {{"getVersion", MP_VERSION},        {"getIdentity", MP_IDENTITY},
+                    {"getTitleID", MP_TITLE_ID},       {"getMainNsoBase", MP_MAIN_BASE},
+                    {"getBuildID", MP_BUILD_ID},       {"getHeapBase", MP_HEAP_BASE},
+                    {"getDiagnostics", MP_DIAGNOSTICS}};
     for (size_t i = 0; i < sizeof(commands) / sizeof(commands[0]); ++i) {
         if (strcmp(command, commands[i].name) == 0) {
             *operation = commands[i].operation;

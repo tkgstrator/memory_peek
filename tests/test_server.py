@@ -115,6 +115,68 @@ class ServerTests(unittest.TestCase):
                 line(sock, "peekAbsolute 0x1000 0x2"), b"ERR GAME_CHANGED\r\n"
             )
 
+    def test_diagnostics_report_raw_probe_fields(self):
+        with connection() as sock:
+            self.assertEqual(
+                line(sock, "getDiagnostics"),
+                b"pm_rc=00000000 pid=000000000000002A attach_rc=00000000 "
+                b"ldr_rc=00000000 modules=2 info_rc=00000000 heap_rc=00000000 "
+                b"title=0100C2500FC20000 main=0000000000001000 "
+                b"heap=0000000000008000 ldr_init_rc=00000000 info_init_rc=00000000 "
+                b"ldr_ready=1 info_ready=1\r\n",
+            )
+        with connection("diag_pm_fail") as sock:
+            self.assertIn(
+                b"pm_rc=00001234 pid=0000000000000000", line(sock, "getDiagnostics")
+            )
+        with connection("diag_attach_fail") as sock:
+            self.assertIn(b"attach_rc=00005678", line(sock, "getDiagnostics"))
+        with connection("diag_partial") as sock:
+            reply = line(sock, "getDiagnostics")
+            for field in (b"ldr_rc=00009ABC", b"info_rc=0000DEF0", b"heap_rc=00001111"):
+                self.assertIn(field, reply)
+        with connection("diag_init_fail") as sock:
+            reply = line(sock, "getDiagnostics")
+            self.assertTrue(reply.startswith(b"pm_rc=00000000 pid=000000000000002A"))
+            self.assertTrue(
+                reply.endswith(
+                    b"ldr_init_rc=0000A001 info_init_rc=FFFFFFFF "
+                    b"ldr_ready=0 info_ready=0\r\n"
+                )
+            )
+            self.assertLess(len(reply), 320)
+        with connection("diag_unavailable") as sock:
+            self.assertEqual(
+                line(sock, "getDiagnostics"), b"ERR READER_UNAVAILABLE\r\n"
+            )
+        with connection("no_game") as sock:
+            self.assertTrue(line(sock, "getDiagnostics").startswith(b"pm_rc="))
+
+    def test_attach_is_closed_before_any_send(self):
+        # fake_server aborts if send() runs while an attach is open and exits 9 on leaks.
+        for scenario, request in (
+            ("normal", "getTitleID"),
+            ("normal", "isProgramRunning 0x1"),
+            ("normal", "peekAbsolute 0x1000 0x100000"),
+            ("read_fail", "peekAbsolute 0x2000 0x2"),
+            ("switch", "peekAbsolute 0x1000 0x2"),
+            ("switch", "getBuildID"),
+        ):
+            process = subprocess.Popen(
+                ["build/fake_server", scenario], stdout=subprocess.PIPE, text=True
+            )
+            try:
+                port = int(process.stdout.readline())
+                with socket.create_connection(("127.0.0.1", port), timeout=3) as sock:
+                    sock.settimeout(3)
+                    self.assertTrue(line(sock, request).endswith(b"\r\n"))
+                self.assertEqual(process.wait(timeout=4), 0, (scenario, request))
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=3)
+                process.stdout.close()
+
     def test_running_game_without_reader_reports_unavailable(self):
         with connection("unavailable") as sock:
             self.assertEqual(line(sock, "getTitleID"), b"ERR READER_UNAVAILABLE\r\n")

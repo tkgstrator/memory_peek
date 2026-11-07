@@ -1,5 +1,7 @@
 # memory_peek 実装計画
 
+> 旧計画です。現行の [README](../../../README.ja.md) と [読み取り専用デバッグ権限の計画](2026-11-07-force-debug-capability.md) に置き換わりました。以下の `dmnt:cht` と空のチートファイルを使う手順は廃止されており、実機に配置しません。
+
 [English](2026-10-31-memory-peek.md)
 
 > **エージェント向け指示:** 必須サブスキル: 本計画をタスク単位で進めるために superpowers:subagent-driven-development（推奨）または superpowers:executing-plans を使用してください。進捗追跡にはチェックボックス（`- [ ]`）構文を使用します。
